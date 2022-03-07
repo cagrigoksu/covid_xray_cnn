@@ -165,6 +165,67 @@ del train_data
 del train_label
 gc.collect()
 
+#TODO add opposite degree to rotate
+def generate_rotated_img(dir, label, angle, cropped = False): 
+
+    input_img_list = dir.glob('*.jpeg')
+    data = []
+    lbl = []
+    for img in input_img_list:
+        sys.stdout.write('\r{0}'.format(str(img)))
+        img_f = cv2.imread(str(img)) 
+        img_f = cv2.resize(img_f, (224,224))
+        img_ = cv2.cvtColor(img_f, cv2.COLOR_BGR2RGB)
+        img_f = img_.astype(np.float32)/255. 
+
+        if cropped:
+            rotated = imutils.rotate(img_f, angle)
+        else:
+            rotated = imutils.rotate_bound(img_f, angle)
+            
+        rotated = cv2.resize(rotated, (224,224))
+        data.append(rotated)
+        
+        if label == 'Covid':
+            lbl.append(to_categorical(0, num_classes = 3))
+        elif label == 'Normal': 
+            lbl.append(to_categorical(1, num_classes = 3))
+        else:
+            lbl.append(to_categorical(2, num_classes = 3))
+
+        sys.stdout.flush()
+
+    data = np.array(data)
+    lbl = np.array(lbl)
+    
+    return data, lbl
+
+rotated_data, rotated_label = generate_rotated_img(train_dir/'Covid', 'Covid', 5)
+
+train_data_r = np.vstack([train_data_f, rotated_data])
+train_label_r = np.vstack([train_label_f, rotated_label])
+
+del train_data_f
+del train_label_f
+gc.collect()
+
+
+categories = np.argmax(train_label_r, axis=1)
+cat_labels = []
+for label in cat_labels:
+    if label == 0:
+        cat_labels.append('Covid')
+    elif label == 1:
+        cat_labels.append('Normal')
+    else:
+        cat_labels.append('Pneumonia')
+
+label_df = pd.DataFrame(cat_labels)
+plt.bar(label_df[0].value_counts().index, label_df[0].value_counts().values, color = 'r', alpha = 0.7)
+plt.xlabel("Case Types")
+plt.ylabel("Number of Cases")
+plt.grid(axis='y')
+
 """# train model"""
 
 model = Sequential()
