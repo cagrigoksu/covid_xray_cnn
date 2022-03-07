@@ -1,6 +1,23 @@
 # Covid 19 Chest X-Ray Prediction Using CNN over Imbalanced Dataset
 # Cagri Goksu USTUNDAG 
 
+
+# download dataset from drive
+"""
+
+import zipfile
+from google.colab import drive
+
+#drive.mount('/content/drive/')
+
+zip_ref = zipfile.ZipFile("/content/drive/MyDrive/datasetXL.zip", 'r')
+zip_ref.extractall("/content")
+zip_ref.close()
+
+"""
+
+# imports"""
+
 import sys, time
 from pathlib import Path
 import pandas as pd
@@ -9,18 +26,23 @@ import matplotlib.image as mpimg
 import tensorflow as tf
 from keras.preprocessing.image import img_to_array, save_img, ImageDataGenerator
 import cv2
-from keras.models import Sequential, Model
+from keras.models import Sequential, Model, load_model
 from keras.layers import Conv2D, MaxPooling2D, Dense, Flatten
 from tensorflow.keras.optimizers import Adam
 import keras
 import numpy as np
 from tensorflow.keras.utils import to_categorical
+import gc
+from keras.preprocessing import image
+from keras.callbacks import ModelCheckpoint
+import os
 
-data_dir = Path("dataset/")
+"""# load dataset"""
+
+data_dir = Path("datasetXL/")
 train_dir = data_dir/'train'
 val_dir = data_dir/'val'
 
-#* loads data, returns paths and labels dataframe
 def load_data(directories):  
 
   dfs = {}
@@ -61,60 +83,17 @@ val_df = data_dfs[val_dir]
 plt.subplot(1, 2, 1)
 plt.bar(train_df['label'].value_counts().index,train_df['label'].value_counts().values, color = 'r', alpha = 0.7)
 plt.xlabel("Case Types")
-plt.ylabel("Number of Cases")
+plt.ylabel("Number of Cases - Train")
 plt.grid(axis='y')
 
 plt.subplot(1, 2, 2)
 plt.bar(val_df['label'].value_counts().index,val_df['label'].value_counts().values, color = 'g', alpha = 0.7)
 
 plt.xlabel("Case Types")
-plt.ylabel("Number of Cases")
+plt.ylabel("Number of Cases - Validation")
 plt.grid(axis='y')
 
-#! generates flipped of the images in the given path
-#TODO do it by adding directly to the array instead of saving
-def generate_flipped_image(dir):
-    
-  input_img_list = dir.glob('*.jpeg')
-
-  for img in input_img_list:
-
-    img_f = mpimg.imread(img) 
-    img_f = img_to_array(img_f)    
-    flipped = tf.image.flip_left_right(img_f)    
-    save_img(str(img).split('.')[0]+'_flipped.jpeg', flipped)
-
-
-generate_flipped_image(train_dir/'Covid')
-
-
-#* Chart of the altered dataset
-dir = [train_dir]
-data_df = load_data(dir)
-
-train_df_flipped = data_df[train_dir]
-
-plt.bar(train_df_flipped['label'].value_counts().index,train_df_flipped['label'].value_counts().values, color = 'r', alpha = 0.7)
-plt.xlabel("Case Types")
-plt.ylabel("Number of Cases")
-plt.grid(axis='y')
-
-#* generate data using generator
-#train_data = ImageDataGenerator().flow_from_directory(directory="datasetXL/train",target_size=(224,224))
-#val_data = ImageDataGenerator().flow_from_directory(directory="datasetXL/val",target_size=(224,224))
-
-#* defining a simple base conv and poolings
-model = Sequential()
-model.add(Conv2D(input_shape=(224,224,3),filters=64,kernel_size=(3,3),padding="same", activation="relu"))
-model.add(Conv2D(filters=64,kernel_size=(3,3),padding="same", activation="relu"))
-model.add(MaxPooling2D(pool_size=(2,2),strides=(2,2)))
-
-model.add(Flatten())
-model.add(Dense(units=64,activation="relu"))
-model.add(Dense(units=3, activation="softmax"))
-
-opt = Adam(learning_rate=0.001)
-model.compile(optimizer=opt, loss='categorical_crossentropy', metrics=['accuracy'])
+"""# prepare data, label"""
 
 def prepare(df):
   data, labels = [], []
@@ -123,7 +102,8 @@ def prepare(df):
 
     img = cv2.imread(str(row['path']))  #* read image from path
     img = cv2.resize(img, (224,224))
-    img = img.astype(np.float32)/255.
+    img_ = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    img = img_.astype(np.float32)/255.
 
     sys.stdout.write('\r{0}'.format(str(j)))
     
@@ -143,10 +123,104 @@ def prepare(df):
 
   return np.asarray(data), np.asarray(labels)
 
-#* img, label pairs for train and test
-t_data, t_label = prepare(train_df_flipped)
-v_data, v_label = prepare(val_df)
+train_data, train_label = prepare(train_df)
+val_data, val_label = prepare(val_df)
 
-batch_size = 32
-hist = model.fit(t_data, t_label, steps_per_epoch= len(train_df_flipped)//batch_size, 
-                  validation_data= (v_data, v_label), validation_steps= len(val_df)//batch_size, epochs=5)
+""" # flip and add to data"""
+
+def generate_flipped(dir, label):
+
+    input_img_list = dir.glob('*.jpeg')
+    data = []
+    lbl = []
+    for img in input_img_list:
+        sys.stdout.write('\r{0}'.format(str(img)))
+        img_f = cv2.imread(str(img)) 
+        img_f = cv2.resize(img_f, (224,224))
+        img_ = cv2.cvtColor(img_f, cv2.COLOR_BGR2RGB)
+        img_f = img_.astype(np.float32)/255. 
+        flipped = tf.image.flip_left_right(img_f)
+        data.append(flipped)
+        
+        if label == 'Covid':
+            lbl.append(to_categorical(0, num_classes = 3))
+        elif label == 'Normal': 
+            lbl.append(to_categorical(1, num_classes = 3))
+        else:
+            lbl.append(to_categorical(2, num_classes = 3))
+
+        sys.stdout.flush()
+
+    data = np.array(data)
+    lbl = np.array(lbl)
+    
+    return data, lbl
+
+flipped_data, flipped_label = generate_flipped(train_dir/'Covid', 'Covid')
+
+train_data_f = np.vstack([train_data, flipped_data])
+train_label_f = np.vstack([train_label, flipped_label])
+
+del train_data
+del train_label
+gc.collect()
+
+"""# train model"""
+
+model = Sequential()
+model.add(Conv2D(input_shape=(224,224,3),filters=64,kernel_size=(3,3),padding="same", activation="relu"))
+model.add(Conv2D(filters=64,kernel_size=(3,3),padding="same", activation="relu"))
+model.add(MaxPooling2D(pool_size=(2,2),strides=(2,2)))
+
+model.add(Flatten())
+model.add(Dense(units=64,activation="relu"))
+model.add(Dense(units=3, activation="softmax"))
+
+opt = Adam(learning_rate=0.001)
+model.compile(optimizer=opt, loss='categorical_crossentropy', metrics=['accuracy'])
+
+checkpoint_path = "content/vgg16_1.h5"
+checkpoint_dir = os.path.dirname(checkpoint_path)
+
+checkpoint = ModelCheckpoint(filepath=checkpoint_path, monitor='val_accuracy', verbose=1, save_best_only=True, save_weights_only=False, mode='auto', save_freq=1)
+
+hist = model.fit(train_data_f, train_label_f, 
+                  validation_data= (val_data, val_label), 
+                 epochs=5, callbacks=[checkpoint])
+
+print(hist.history.keys())
+
+plt.plot(hist.history["accuracy"])
+plt.plot(hist.history['val_accuracy'])
+plt.plot(hist.history['loss'])
+plt.plot(hist.history['val_loss'])
+plt.title("model accuracy")
+plt.ylabel("Accuracy")
+plt.xlabel("Epoch")
+plt.legend(["Accuracy","Validation Accuracy","loss","Validation Loss"])
+plt.show()
+
+# !mkdir -p saved # to create dir on colab
+model.save('saved/model')
+cnn_model = load_model("saved/model")
+
+covid_img = cv2.imread("datasetXL/val/Covid/084.jpeg")  #* read image from path
+covid_img = cv2.resize(covid_img, (224,224))
+covid_img = covid_img.reshape(1, 224, 224, 3)
+covid_img = np.asarray(covid_img)
+
+normal_img = cv2.imread("datasetXL/val/Normal/NORMAL2-IM-1437-0001.jpeg") 
+normal_img = cv2.resize(normal_img, (224,224))
+normal_img = normal_img.reshape(1, 224, 224, 3)
+normal_img = np.asarray(normal_img)
+
+pneumonia_img = cv2.imread("datasetXL/val/Pneumonia/person1949_bacteria_4880.jpeg")  
+pneumonia_img = cv2.resize(pneumonia_img, (224,224))
+pneumonia_img = pneumonia_img.reshape(1, 224, 224, 3)
+pneumonia_img = np.asarray(pneumonia_img)
+
+covid_pred = cnn_model.predict(covid_img)
+normal_pred = cnn_model.predict(normal_img)
+pneumonia_pred = cnn_model.predict(pneumonia_img)
+
+print(covid_pred, normal_pred, pneumonia_pred)
