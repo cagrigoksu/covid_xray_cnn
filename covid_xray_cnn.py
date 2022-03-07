@@ -165,27 +165,13 @@ del train_data
 del train_label
 gc.collect()
 
-#TODO add opposite degree to rotate
-def generate_rotated_img(dir, label, angle, cropped = False): 
+def generate_rotated_img(dir, label, angle, cropped = False, opposite_angle = False): 
 
     input_img_list = dir.glob('*.jpeg')
     data = []
     lbl = []
-    for img in input_img_list:
-        sys.stdout.write('\r{0}'.format(str(img)))
-        img_f = cv2.imread(str(img)) 
-        img_f = cv2.resize(img_f, (224,224))
-        img_ = cv2.cvtColor(img_f, cv2.COLOR_BGR2RGB)
-        img_f = img_.astype(np.float32)/255. 
 
-        if cropped:
-            rotated = imutils.rotate(img_f, angle)
-        else:
-            rotated = imutils.rotate_bound(img_f, angle)
-            
-        rotated = cv2.resize(rotated, (224,224))
-        data.append(rotated)
-        
+    def write_label(label):
         if label == 'Covid':
             lbl.append(to_categorical(0, num_classes = 3))
         elif label == 'Normal': 
@@ -193,6 +179,32 @@ def generate_rotated_img(dir, label, angle, cropped = False):
         else:
             lbl.append(to_categorical(2, num_classes = 3))
 
+    def rotate(img, angle, cropped):
+        if cropped:
+            rotated = imutils.rotate(img, angle)
+            rotated = cv2.resize(rotated, (224,224))
+            data.append(rotated)
+            write_label(label)
+        else:
+            rotated = imutils.rotate_bound(img, angle)
+            rotated = cv2.resize(rotated, (224,224))
+            data.append(rotated)
+            write_label(label)
+
+
+    for img in input_img_list:
+        sys.stdout.write('\r{0}'.format(str(img)))
+        img_r = cv2.imread(str(img)) 
+        img_r = cv2.resize(img_r, (224,224))
+        img_ = cv2.cvtColor(img_r, cv2.COLOR_BGR2RGB)
+        img_r = img_.astype(np.float32)/255. 
+
+        if opposite_angle:
+            rotate(img_r, angle, cropped) 
+            rotate(img_r, angle*-1, cropped)              
+        else:
+            rotate(img_r, angle, cropped) 
+        
         sys.stdout.flush()
 
     data = np.array(data)
